@@ -23,35 +23,49 @@ export default function LeaderboardPage() {
 
     setUser(session.user);
 
-    const { data } = await supabase
-      .from("reading_progress")
-      .select("*");
+    // Fetch all registered participants
+    const { data: participants, error: participantsError } =
+      await supabase
+        .from("participants")
+        .select("*")
+        .order("created_at", { ascending: true });
 
-    if (!data) {
+    if (participantsError) {
+      console.error(participantsError);
       setLoading(false);
       return;
     }
 
-    const grouped = Object.values(
-      data.reduce((acc: any, item: any) => {
-        if (!acc[item.user_email]) {
-          acc[item.user_email] = {
-            name: item.user_name,
-            email: item.user_email,
-            completed: 0,
-          };
-        }
+    // Fetch all completed readings
+    const { data: progress } = await supabase
+      .from("reading_progress")
+      .select("user_id");
 
-        acc[item.user_email].completed++;
+    // Count completions per participant
+    const completionMap: Record<string, number> = {};
 
-        return acc;
-      }, {})
-    );
+    progress?.forEach((item: any) => {
+      completionMap[item.user_id] =
+        (completionMap[item.user_id] || 0) + 1;
+    });
 
-    grouped.sort((a: any, b: any) => b.completed - a.completed);
+    // Merge participants with completion count
+    const leaderboard = participants.map((participant: any, index: number) => ({
+      ...participant,
+      completed: completionMap[participant.id] || 0,
+      registrationOrder: index,
+    }));
 
-    setLeaders(grouped);
+    // Sort by completed desc, then registration order
+    leaderboard.sort((a: any, b: any) => {
+      if (b.completed !== a.completed) {
+        return b.completed - a.completed;
+      }
 
+      return a.registrationOrder - b.registrationOrder;
+    });
+
+    setLeaders(leaderboard);
     setLoading(false);
   }
 
@@ -86,7 +100,6 @@ export default function LeaderboardPage() {
       email={user?.email || ""}
     >
       <div className="mb-10">
-
         <h1 className="text-4xl font-black">
           🏆 Leaderboard
         </h1>
@@ -94,47 +107,34 @@ export default function LeaderboardPage() {
         <p className="mt-2 text-slate-500">
           Participants ranked by completed readings.
         </p>
-
       </div>
 
       <div className="space-y-5">
-
         {leaders.map((person: any, index: number) => (
-
           <div
-            key={person.email}
+            key={person.id}
             className={`flex items-center justify-between rounded-3xl p-6 shadow-lg transition hover:scale-[1.01]
             ${
               index === 0
-                ? "bg-yellow-50 border-2 border-yellow-300"
+                ? "border-2 border-yellow-300 bg-yellow-50"
                 : index === 1
-                ? "bg-gray-50 border-2 border-gray-300"
+                ? "border-2 border-gray-300 bg-gray-50"
                 : index === 2
-                ? "bg-orange-50 border-2 border-orange-300"
+                ? "border-2 border-orange-300 bg-orange-50"
                 : "bg-white"
             }`}
           >
-
             <div className="flex items-center gap-5">
-
               {badge(index)}
 
               <div>
-
                 <h2 className="text-xl font-bold">
-                  {person.name}
+                  {person.full_name}
                 </h2>
-
-                <p className="text-slate-500">
-                  {person.email}
-                </p>
-
               </div>
-
             </div>
 
             <div className="text-right">
-
               <p className="text-sm text-slate-500">
                 Completed
               </p>
@@ -142,15 +142,10 @@ export default function LeaderboardPage() {
               <h2 className="text-3xl font-black text-emerald-600">
                 {person.completed}
               </h2>
-
             </div>
-
           </div>
-
         ))}
-
       </div>
-
     </AppLayout>
   );
 }
